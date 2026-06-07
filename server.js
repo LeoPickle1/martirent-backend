@@ -3,14 +3,14 @@ const cron = require("node-cron");
 const emailjs = require("@emailjs/nodejs");
 
 const app = express();
-
+app.use(express.json());
 const SERVICE_ID = "service_se557qo";
 const TEMPLATE_ID = "template_ewxeb9s";
 const PUBLIC_KEY = "OjiM96plxa6axVPRc";
 
 const reminderDays = [365, 30, 7];
 
-const maintenance = [
+let maintenance = [
   {
     property: "Grenchen",
     type: "Chimney Sweep",
@@ -73,6 +73,24 @@ app.get("/", (req, res) => {
   res.send("MartiRent Backend Running");
 });
 
+app.get("/", (req, res) => {
+  res.send("MartiRent Backend Running");
+});
+
+app.post("/maintenance", (req, res) => {
+  maintenance = req.body;
+
+  console.log("Maintenance data updated:", maintenance.length);
+
+  res.json({
+    success: true,
+    count: maintenance.length,
+  });
+});
+
+app.get("/maintenance", (req, res) => {
+  res.json(maintenance);
+});
 app.get("/test-email", async (req, res) => {
   try {
     await sendReminderEmail(
