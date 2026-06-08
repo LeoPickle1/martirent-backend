@@ -106,6 +106,15 @@ app.get("/maintenance", (req, res) => {
   res.json(maintenance);
 });
 app.get("/test-email", async (req, res) => {
+  app.get("/run-check", async (req, res) => {
+  try {
+    await checkMaintenance();
+    res.send("Reminder check completed");
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Reminder check failed");
+  }
+});
   try {
     await sendReminderEmail(
       {
