@@ -48,21 +48,22 @@ const sendReminderEmail = async (item, days) => {
     { publicKey: PUBLIC_KEY }
   );
 };
-
+[{"property":"Sempach","type":"SiNa Inspection","company":"Elektro-Team Eich","lastDone":"2024-10-10","intervalYears":"20","warningDays":"365"},{"property":"Langnau","type":"Chimney Sweep","company":"Kaminfeger Hiltbrunner","lastDone":"2025-05-14","intervalYears":1,"warningDays":30},{"property":"Langnau","type":"Tank Revision","company":"Unknown","lastDone":"2026-02-27","intervalYears":10,"warningDays":180},{"property":"Hilterfingen","type":"Floor Heating Flush","company":"Frutiger-Zbinden","lastDone":"2026-06-26","intervalYears":6,"warningDays":180},{"property":"Hilterfingen","type":"Magnet Separator Cleaning","company":"Frutiger-Zbinden","lastDone":"2025-12-05","intervalYears":1,"warningDays":60},{"property":"Aeschlen","type":"Heating Service","company":"Meier-Tobler","lastDone":"2024-12-10","intervalYears":1,"warningDays":60},{"property":"Traube","type":"Chimney Sweep","company":"Fürst Kaminfeger","lastDone":"2024-09-11","intervalYears":1,"warningDays":60},{"property":"Traube","type":"Boiler Descaling","company":"A. Borer Alexander","lastDone":"2025-02-01","intervalYears":5,"warningDays":180},{"property":"Kundmatt","type":"Tree / Garden Maintenance","company":"Nussbaum","lastDone":"2025-03-01","intervalYears":2,"warningDays":90},{"property":"Grenchen","type":"Chimney Sweep","company":"Felix Weber","lastDone":"2024-10-07","intervalYears":1,"warningDays":60},{"property":"Grenchen","type":"Linden Tree Check","company":"Mosimann","lastDone":"2026-02-17","intervalYears":2,"warningDays":180},{"property":"Eich","type":"Heat Pump Service","company":"GT Estermann","lastDone":"2026-04-13","intervalYears":1,"warningDays":60},{"property":"Eich","type":"Boiler Heat Pump Check","company":"GT Estermann","lastDone":"2026-04-13","intervalYears":5,"warningDays":180},{"property":"idk","type":"idk","company":"idk","lastDone":"2000-01-09","intervalYears":"1","warningDays":"2"}]
 const checkMaintenance = async () => {
   console.log("Checking maintenance reminders...");
 
   for (const item of maintenance) {
-    const days = daysUntil(item.nextDue);
+    const nextDue = getNextDue(item);
+const days = daysUntil(nextDue);
 
     if (!reminderDays.includes(days)) continue;
 
-    const emailId = `${item.property}-${item.type}-${item.nextDue}-${days}`;
+   const emailId = `${item.property}-${item.type}-${nextDue}-${days}`;
 
     if (sentEmails.has(emailId)) continue;
 
     try {
-      await sendReminderEmail(item, days);
+      await sendReminderEmail({ ...item, nextDue }, days);
       sentEmails.add(emailId);
       console.log("Email sent:", emailId);
     } catch (error) {
