@@ -1,8 +1,10 @@
 const express = require("express");
+const cors = require("cors");
 const cron = require("node-cron");
 const emailjs = require("@emailjs/nodejs");
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 const SERVICE_ID = "service_se557qo";
 const TEMPLATE_ID = "template_ewxeb9s";
