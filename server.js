@@ -1,3 +1,4 @@
+const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const cron = require("node-cron");
@@ -21,7 +22,13 @@ let maintenance = [
   },
 ];
 
-const sentEmails = new Set();
+let sentEmails = new Set();
+
+if (fs.existsSync("sentEmails.json")) {
+  sentEmails = new Set(
+    JSON.parse(fs.readFileSync("sentEmails.json", "utf8"))
+  );
+}
 
 const daysUntil = (date) => {
   const today = new Date();
@@ -65,6 +72,10 @@ const days = daysUntil(nextDue);
     try {
       await sendReminderEmail({ ...item, nextDue }, days);
       sentEmails.add(emailId);
+      fs.writeFileSync(
+  "sentEmails.json",
+  JSON.stringify([...sentEmails], null, 2)
+);
       console.log("Email sent:", emailId);
     } catch (error) {
       console.error("Email failed:", error);
