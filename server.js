@@ -3,6 +3,7 @@ const cors = require("cors");
 const cron = require("node-cron");
 const emailjs = require("@emailjs/nodejs");
 const fs = require("fs");
+const webpush = require("web-push");
 
 const app = express();
 
@@ -12,6 +13,16 @@ app.use(express.json());
 const SERVICE_ID = "service_se557qo";
 const TEMPLATE_ID = "template_ewxeb9s";
 const PUBLIC_KEY = "OjiM96plxa6axVPRc";
+
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_EMAIL = process.env.VAPID_EMAIL || "mailto:martirent2026@gmail.com";
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else {
+  console.log("Missing VAPID keys. Push notifications will not work yet.");
+}
 
 const reminderDays = [365, 30, 7];
 
@@ -25,10 +36,24 @@ let maintenance = [
 ];
 
 let sentEmails = new Set();
+let sentPushes = new Set();
+let pushSubscriptions = [];
 
 if (fs.existsSync("sentEmails.json")) {
   sentEmails = new Set(JSON.parse(fs.readFileSync("sentEmails.json", "utf8")));
 }
+
+if (fs.existsSync("sentPushes.json")) {
+  sentPushes = new Set(JSON.parse(fs.readFileSync("sentPushes.json", "utf8")));
+}
+
+if (fs.existsSync("pushSubscriptions.json")) {
+  pushSubscriptions = JSON.parse(fs.readFileSync("pushSubscriptions.json", "utf8"));
+}
+
+const saveJson = (file, data) => {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+};
 
 const addYears = (date, years) => {
   const d = new Date(date);
@@ -67,6 +92,42 @@ const sendReminderEmail = async (item, days) => {
   );
 };
 
+const sendPushToAll = async (title, body) => {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+    console.log("Push skipped. Missing VAPID keys.");
+    return;
+  }
+
+  const payload = JSON.stringify({
+    title,
+    body,
+    url: "/",
+  });
+
+  const failedEndpoints = [];
+
+  for (const subscription of pushSubscriptions) {
+    try {
+      await webpush.sendNotification(subscription, payload);
+      console.log("Push sent");
+    } catch (error) {
+      console.error("Push failed:", error.statusCode || error.message);
+
+      if (error.statusCode === 404 || error.statusCode === 410) {
+        failedEndpoints.push(subscription.endpoint);
+      }
+    }
+  }
+
+  if (failedEndpoints.length > 0) {
+    pushSubscriptions = pushSubscriptions.filter(
+      (sub) => !failedEndpoints.includes(sub.endpoint)
+    );
+
+    saveJson("pushSubscriptions.json", pushSubscriptions);
+  }
+};
+
 const checkMaintenance = async () => {
   console.log("Checking maintenance reminders...");
 
@@ -74,30 +135,96 @@ const checkMaintenance = async () => {
     const nextDue = getNextDue(item);
     const days = daysUntil(nextDue);
 
-    if (!reminderDays.includes(days)) continue;
+    if (!reminderDays.includes(days) && days >= 0) continue;
 
-    const emailId = `${item.property}-${item.type}-${nextDue}-${days}`;
+    const itemWithDate = { ...item, nextDue };
 
-    if (sentEmails.has(emailId)) continue;
+    const emailId = `${item.property}-${item.type}-${nextDue}-${days}-email`;
+    const pushId = `${item.property}-${item.type}-${nextDue}-${days}-push`;
 
-    try {
-      await sendReminderEmail({ ...item, nextDue }, days);
-      sentEmails.add(emailId);
+    if (!sentEmails.has(emailId) && reminderDays.includes(days)) {
+      try {
+        await sendReminderEmail(itemWithDate, days);
+        sentEmails.add(emailId);
+        saveJson("sentEmails.json", [...sentEmails]);
+        console.log("Email sent:", emailId);
+      } catch (error) {
+        console.error("Email failed:", error);
+      }
+    }
 
-      fs.writeFileSync(
-        "sentEmails.json",
-        JSON.stringify([...sentEmails], null, 2)
-      );
+    if (!sentPushes.has(pushId)) {
+      try {
+        const title =
+          days < 0
+            ? "🚨 Maintenance overdue"
+            : "🔧 Maintenance reminder";
 
-      console.log("Email sent:", emailId);
-    } catch (error) {
-      console.error("Email failed:", error);
+        const body =
+          days < 0
+            ? `${item.property}: ${item.type} is ${Math.abs(days)} days overdue.`
+            : `${item.property}: ${item.type} is due in ${days} days.`;
+
+        await sendPushToAll(title, body);
+
+        sentPushes.add(pushId);
+        saveJson("sentPushes.json", [...sentPushes]);
+
+        console.log("Push reminder sent:", pushId);
+      } catch (error) {
+        console.error("Push reminder failed:", error);
+      }
     }
   }
 };
 
 app.get("/", (req, res) => {
   res.send("MartiRent Backend Running");
+});
+
+app.get("/vapid-public-key", (req, res) => {
+  res.json({
+    publicKey: VAPID_PUBLIC_KEY,
+  });
+});
+
+app.post("/subscribe", (req, res) => {
+  const subscription = req.body;
+
+  if (!subscription || !subscription.endpoint) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid subscription",
+    });
+  }
+
+  const alreadySaved = pushSubscriptions.some(
+    (sub) => sub.endpoint === subscription.endpoint
+  );
+
+  if (!alreadySaved) {
+    pushSubscriptions.push(subscription);
+    saveJson("pushSubscriptions.json", pushSubscriptions);
+  }
+
+  res.json({
+    success: true,
+    subscriptions: pushSubscriptions.length,
+  });
+});
+
+app.get("/test-push", async (req, res) => {
+  try {
+    await sendPushToAll(
+      "✅ MartiRent notifications work",
+      "Your phone can now receive MartiRent reminders."
+    );
+
+    res.send("Test push sent");
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Test push failed");
+  }
 });
 
 app.post("/maintenance", (req, res) => {
