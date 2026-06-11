@@ -26,14 +26,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 
 const reminderDays = [365, 30, 7];
 
-let maintenance = [
-  {
-    property: "Grenchen",
-    type: "Chimney Sweep",
-    company: "Felix Weber",
-    nextDue: "2027-10-07",
-  },
-];
+let maintenance = [];
 
 let sentEmails = new Set();
 let sentPushes = new Set();
