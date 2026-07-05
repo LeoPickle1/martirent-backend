@@ -4,11 +4,12 @@ const cron = require("node-cron");
 const emailjs = require("@emailjs/nodejs");
 const fs = require("fs");
 const webpush = require("web-push");
+const { Pool } = require("pg");
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 const SERVICE_ID = "service_se557qo";
 const TEMPLATE_ID = "template_ewxeb9s";
@@ -18,6 +19,13 @@ const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_EMAIL = process.env.VAPID_EMAIL || "mailto:martirent2026@gmail.com";
 
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+});
+
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 } else {
@@ -26,8 +34,6 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 
 const reminderDays = [365, 30, 7];
 
-let maintenance = [];
-let contacts = [];
 let sentEmails = new Set();
 let sentPushes = new Set();
 let pushSubscriptions = [];
@@ -46,6 +52,44 @@ if (fs.existsSync("pushSubscriptions.json")) {
 
 const saveJson = (file, data) => {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
+};
+
+const initDatabase = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_data (
+      name TEXT PRIMARY KEY,
+      data JSONB NOT NULL
+    );
+  `);
+
+  await pool.query(`
+    INSERT INTO app_data (name, data)
+    VALUES 
+      ('maintenance', '[]'::jsonb),
+      ('contacts', '[]'::jsonb),
+      ('properties', '[]'::jsonb),
+      ('documents', '[]'::jsonb)
+    ON CONFLICT (name) DO NOTHING;
+  `);
+
+  console.log("Database ready");
+};
+
+const getData = async (name) => {
+  const result = await pool.query("SELECT data FROM app_data WHERE name = $1", [name]);
+  return result.rows[0]?.data || [];
+};
+
+const saveData = async (name, data) => {
+  await pool.query(
+    `
+    INSERT INTO app_data (name, data)
+    VALUES ($1, $2::jsonb)
+    ON CONFLICT (name)
+    DO UPDATE SET data = EXCLUDED.data
+    `,
+    [name, JSON.stringify(data)]
+  );
 };
 
 const addYears = (date, years) => {
@@ -123,6 +167,8 @@ const sendPushToAll = async (title, body) => {
 
 const checkMaintenance = async () => {
   console.log("Checking maintenance reminders...");
+
+  const maintenance = await getData("maintenance");
 
   for (const item of maintenance) {
     const nextDue = getNextDue(item);
@@ -220,8 +266,14 @@ app.get("/test-push", async (req, res) => {
   }
 });
 
-app.post("/maintenance", (req, res) => {
-  maintenance = req.body;
+app.get("/maintenance", async (req, res) => {
+  const maintenance = await getData("maintenance");
+  res.json(maintenance);
+});
+
+app.post("/maintenance", async (req, res) => {
+  const maintenance = Array.isArray(req.body) ? req.body : [];
+  await saveData("maintenance", maintenance);
 
   console.log("Maintenance data updated:", maintenance.length);
 
@@ -231,17 +283,51 @@ app.post("/maintenance", (req, res) => {
   });
 });
 
-app.get("/maintenance", (req, res) => {
-  res.json(maintenance);
-});
-app.get("/contacts", (req, res) => {
+app.get("/contacts", async (req, res) => {
+  const contacts = await getData("contacts");
   res.json(contacts);
 });
 
-app.post("/contacts", (req, res) => {
-  contacts = req.body;
-  res.json({ success: true });
+app.post("/contacts", async (req, res) => {
+  const contacts = Array.isArray(req.body) ? req.body : [];
+  await saveData("contacts", contacts);
+
+  res.json({
+    success: true,
+    count: contacts.length,
+  });
 });
+
+app.get("/properties", async (req, res) => {
+  const properties = await getData("properties");
+  res.json(properties);
+});
+
+app.post("/properties", async (req, res) => {
+  const properties = Array.isArray(req.body) ? req.body : [];
+  await saveData("properties", properties);
+
+  res.json({
+    success: true,
+    count: properties.length,
+  });
+});
+
+app.get("/documents", async (req, res) => {
+  const documents = await getData("documents");
+  res.json(documents);
+});
+
+app.post("/documents", async (req, res) => {
+  const documents = Array.isArray(req.body) ? req.body : [];
+  await saveData("documents", documents);
+
+  res.json({
+    success: true,
+    count: documents.length,
+  });
+});
+
 app.get("/test-email", async (req, res) => {
   try {
     await sendReminderEmail(
@@ -277,6 +363,13 @@ cron.schedule("0 8 * * *", checkMaintenance, {
 
 const PORT = process.env.PORT || 3001;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+initDatabase()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Database setup failed:", error);
+    process.exit(1);
+  });
