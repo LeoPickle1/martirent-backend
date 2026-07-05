@@ -27,7 +27,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 const reminderDays = [365, 30, 7];
 
 let maintenance = [];
-
+let contacts = [];
 let sentEmails = new Set();
 let sentPushes = new Set();
 let pushSubscriptions = [];
@@ -234,7 +234,14 @@ app.post("/maintenance", (req, res) => {
 app.get("/maintenance", (req, res) => {
   res.json(maintenance);
 });
+app.get("/contacts", (req, res) => {
+  res.json(contacts);
+});
 
+app.post("/contacts", (req, res) => {
+  contacts = req.body;
+  res.json({ success: true });
+});
 app.get("/test-email", async (req, res) => {
   try {
     await sendReminderEmail(
